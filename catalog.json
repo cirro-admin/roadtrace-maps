@@ -21,7 +21,13 @@
         -0.05,
         38.65
       ],
-      "maxzoom": 15
+      "maxzoom": 15,
+      "graph": {
+        "file": "alicante.rtgraph",
+        "url": "https://github.com/cirro-admin/roadtrace-maps/releases/download/osm-20261015/alicante.rtgraph",
+        "bytes": 10480124,
+        "sha256": "5533ea357ff3c99bac0130bdc1b58a9977d9b3ba6f568bc466db2d94bbf22c8a"
+      }
     },
     {
       "id": "cm-yaounde",
@@ -40,7 +46,13 @@
         11.65,
         4.0
       ],
-      "maxzoom": 15
+      "maxzoom": 15,
+      "graph": {
+        "file": "yaounde.rtgraph",
+        "url": "https://github.com/cirro-admin/roadtrace-maps/releases/download/osm-20261015/yaounde.rtgraph",
+        "bytes": 3498082,
+        "sha256": "0b4014f3451b3c7d08cd3ef4c82d3381b607f46305caec46a1f0ef3fb6c8704a"
+      }
     },
     {
       "id": "cm-douala",
@@ -59,7 +71,13 @@
         9.85,
         4.15
       ],
-      "maxzoom": 15
+      "maxzoom": 15,
+      "graph": {
+        "file": "douala.rtgraph",
+        "url": "https://github.com/cirro-admin/roadtrace-maps/releases/download/osm-20261015/douala.rtgraph",
+        "bytes": 1977408,
+        "sha256": "4dc7acf50cd007872796719e3ce9b6eae5fda72cfb76789d4507363a010128a4"
+      }
     },
     {
       "id": "cm-overview",
@@ -78,7 +96,14 @@
         16.2,
         13.1
       ],
-      "maxzoom": 11
+      "maxzoom": 11,
+      "graph": {
+        "file": "cameroon.rtgraph",
+        "url": "https://github.com/cirro-admin/roadtrace-maps/releases/download/osm-20261015/cameroon.rtgraph",
+        "bytes": 10725860,
+        "sha256": "3db6bfd464270c26d25e03af8b8c3ffe07dfdf379733b17be763030225a6e264"
+      }
     }
-  ]
+  ],
+  "routing": "Routing graphs built from Geofabrik OSM extracts with tools/routing/build_graph.py (format v3)"
 }
