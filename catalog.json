@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "generated": "2026-10-15",
+  "source": "Protomaps basemap build 20261015 (OpenStreetMap)",
+  "attribution": "© OpenStreetMap contributors (ODbL)",
+  "regions": [
+    {
+      "id": "es-alicante",
+      "name": {
+        "en": "Alicante",
+        "fr": "Alicante"
+      },
+      "country": "ES",
+      "file": "alicante.pmtiles",
+      "url": "https://github.com/cirro-admin/roadtrace-maps/releases/download/osm-20261015/alicante.pmtiles",
+      "bytes": 24884316,
+      "sha256": "f4ada032c57581c56bfbb8a0abaa5cf3107f8037b90d59e4302884bfc8d07db4",
+      "bbox": [
+        -0.85,
+        38.15,
+        -0.05,
+        38.65
+      ],
+      "maxzoom": 15
+    },
+    {
+      "id": "cm-yaounde",
+      "name": {
+        "en": "Yaoundé",
+        "fr": "Yaoundé"
+      },
+      "country": "CM",
+      "file": "yaounde.pmtiles",
+      "url": "https://github.com/cirro-admin/roadtrace-maps/releases/download/osm-20261015/yaounde.pmtiles",
+      "bytes": 20175991,
+      "sha256": "47e61219914eda703bcf3871c4f32ba2e1d8804d62e45a0a551797f978c5ead1",
+      "bbox": [
+        11.35,
+        3.72,
+        11.65,
+        4.0
+      ],
+      "maxzoom": 15
+    },
+    {
+      "id": "cm-douala",
+      "name": {
+        "en": "Douala",
+        "fr": "Douala"
+      },
+      "country": "CM",
+      "file": "douala.pmtiles",
+      "url": "https://github.com/cirro-admin/roadtrace-maps/releases/download/osm-20261015/douala.pmtiles",
+      "bytes": 12565887,
+      "sha256": "8bcadd9506a96dae514d380b74372474b2ebb9b8b7d43358155d2e98954a6e10",
+      "bbox": [
+        9.6,
+        3.95,
+        9.85,
+        4.15
+      ],
+      "maxzoom": 15
+    },
+    {
+      "id": "cm-overview",
+      "name": {
+        "en": "Cameroon (main roads)",
+        "fr": "Cameroun (routes principales)"
+      },
+      "country": "CM",
+      "file": "cameroon.pmtiles",
+      "url": "https://github.com/cirro-admin/roadtrace-maps/releases/download/osm-20261015/cameroon.pmtiles",
+      "bytes": 75349906,
+      "sha256": "51841d92ea2b6fa7d2d2821780accb06810250e1ae51600b4604b52dbec5aac4",
+      "bbox": [
+        8.4,
+        1.6,
+        16.2,
+        13.1
+      ],
+      "maxzoom": 11
+    }
+  ]
+}
