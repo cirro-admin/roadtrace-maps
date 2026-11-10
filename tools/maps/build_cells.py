@@ -272,7 +272,10 @@ def build_block(block, out, date, cache):
                 piece = os.path.join(d, f"{leaf.replace('/', '_')}.osm.pbf")
                 config["extracts"].append(
                     {"output": piece,
-                     "bbox": [lng - 0.1, lat - 0.1, lng + 1.1, lat + 1.1]})
+                     # Clamped: osmium refuses a box past the date line
+                     # or a pole.
+                     "bbox": [max(lng - 0.1, -180), max(lat - 0.1, -90),
+                              min(lng + 1.1, 180), min(lat + 1.1, 90)]})
                 pieces.setdefault(cid, []).append(piece)
             cfg = os.path.join(cache, "extract.json")
             json.dump(config, open(cfg, "w"))
