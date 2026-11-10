@@ -72,9 +72,13 @@ jobs:
       - name: Tools
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
-          pip install --quiet osmium
+          pip install --quiet osmium duckdb
       - name: Build
         env:
+          # The build needs no keys: Overture is read anonymously, and the
+          # R2 keys stay out of this step.
+          AWS_ACCESS_KEY_ID: ""
+          AWS_SECRET_ACCESS_KEY: ""
           CELLS_DATE: ${{ needs.plan.outputs.date }}
           CELLS_CACHE: ${{ runner.temp }}/cells
         run: python3 tools/maps/build_cells.py block ${{ matrix.block }} out

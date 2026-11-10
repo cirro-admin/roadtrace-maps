@@ -21,7 +21,10 @@ the border join. Then, per cell:
 
     <cell>.rtgraph        every road (build_graph.py --cell)
     <cell>.major.rtgraph  main roads only, for long trips
-    <cell>.rtaddr         house numbers (build_addresses.py --cell)
+    <cell>.rtaddr         house numbers (build_addresses.py --cell), from
+                          OpenStreetMap and Overture Maps' addresses
+                          (governments' open registers: about 550 million
+                          in some 40 countries, none yet in Africa)
 
 A file with nothing in it is not written. OUT_DIR/<block>.json lists what
 was (format below); the app reads it through index.json (lib/map/
@@ -31,7 +34,9 @@ area_downloads.dart):
      "cells": {"n04e011": {"graph": {file, url, bytes, sha256},
                             "major": {...}, "addresses": {...}}}}
 
-Needs osmium-tool (the `osmium` command) and pyosmium.
+Needs osmium-tool (the `osmium` command), pyosmium and duckdb. Overture is
+read anonymously from its public S3 bucket, for the block's box only; if
+that fails the block is built with OpenStreetMap's numbers alone.
 """
 
 import concurrent.futures
@@ -40,6 +45,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -51,6 +57,7 @@ GRAPH = os.path.join(HERE, "..", "routing", "build_graph.py")
 ADDRESSES = os.path.join(HERE, "build_addresses.py")
 BASE_URL = "https://maps.roadtrace.app/cells"
 GEOFABRIK_INDEX = "https://download.geofabrik.de/index-v1.json"
+OVERTURE = "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com"
 UA = {"User-Agent": "roadtrace-maps/1 (+https://roadtrace.app)"}
 
 # Extracts that only repeat others (unions of countries or states).
@@ -140,7 +147,68 @@ def edge_count(rtgraph):
     return struct.unpack("<I", head[12:16])[0]
 
 
-def build_cell(cid, parts, out, date):
+def overture_release():
+    """The newest Overture Maps release, such as "2026-10-21.0"."""
+    req = urllib.request.Request(
+        f"{OVERTURE}/?list-type=2&prefix=release/&delimiter=/", headers=UA)
+    with urllib.request.urlopen(req, timeout=60) as r:
+        listing = r.read().decode()
+    releases = re.findall(r"<Prefix>release/([0-9][^<]*)/</Prefix>", listing)
+    return sorted(releases)[-1]
+
+
+def overture_addresses(block, work):
+    """Overture's addresses in the block, a TSV per cell: {cell id: path}."""
+    try:
+        import duckdb
+        release = overture_release()
+        blat, blng = parse_id(block)
+        tsv = os.path.join(work, "overture.tsv")
+        # Anonymous: no keys of ours ever go to that bucket.
+        env = {k: v for k, v in os.environ.items() if k.startswith("AWS_")}
+        for k in env:
+            del os.environ[k]
+        try:
+            db = duckdb.connect()
+            db.sql("INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2';")
+            db.sql(f"""
+                COPY (
+                  SELECT replace(replace(street, chr(9), ' '), chr(10), ' '),
+                         replace(replace(number, chr(9), ' '), chr(10), ' '),
+                         round(bbox.ymin, 6), round(bbox.xmin, 6)
+                  FROM read_parquet('s3://overturemaps-us-west-2/release/{release}/theme=addresses/type=address/*')
+                  WHERE bbox.xmin >= {blng} AND bbox.xmin < {blng + 10}
+                    AND bbox.ymin >= {blat} AND bbox.ymin < {blat + 10}
+                    AND street IS NOT NULL AND number IS NOT NULL
+                ) TO '{tsv}' (FORMAT csv, DELIMITER '\t', HEADER false, QUOTE '')
+            """)
+            db.close()
+        finally:
+            os.environ.update(env)
+        files, out = {}, {}
+        rows = 0
+        with open(tsv, encoding="utf-8") as f:
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) != 4:
+                    continue
+                cid = cell_id(math.floor(float(parts[2])), math.floor(float(parts[3])))
+                if cid not in files:
+                    out[cid] = os.path.join(work, f"overture-{cid}.tsv")
+                    files[cid] = open(out[cid], "w", encoding="utf-8")
+                files[cid].write(line)
+                rows += 1
+        for f in files.values():
+            f.close()
+        os.remove(tsv)
+        print(f"== {block}: {rows} Overture addresses ({release})", flush=True)
+        return out
+    except Exception as e:  # noqa: BLE001 - OpenStreetMap's numbers still go out
+        print(f"== {block}: no Overture addresses ({e})", flush=True)
+        return {}
+
+
+def build_cell(cid, parts, out, date, extra=None):
     """One cell from its pieces; returns (cid, entry) or (cid, None)."""
     lat, lng = parse_id(cid)
     bbox = f"{lng},{lat},{lng + 1},{lat + 1}"
@@ -154,12 +222,15 @@ def build_cell(cid, parts, out, date):
     for key, name, cmd in [
         ("graph", f"{cid}.rtgraph", [GRAPH]),
         ("major", f"{cid}.major.rtgraph", [GRAPH, "--major-only"]),
-        ("addresses", f"{cid}.rtaddr", [ADDRESSES]),
+        ("addresses", f"{cid}.rtaddr",
+         [ADDRESSES] + ([f"--extra={extra}"] if extra else [])),
     ]:
         target = os.path.join(out, name)
         subprocess.run([sys.executable, cmd[0], src, target, f"--bbox={bbox}",
                         "--cell", *cmd[1:]], check=True, capture_output=True)
         # The address builder writes nothing for a cell without numbers.
+        if extra and key == "addresses" and os.path.exists(extra):
+            os.remove(extra)
         if not os.path.exists(target):
             continue
         if key != "addresses" and edge_count(target) == 0:
@@ -209,10 +280,11 @@ def build_block(block, out, date, cache):
                             "-c", cfg, pbf], check=True, capture_output=True)
         os.remove(pbf)
 
+    extra = overture_addresses(block, os.path.join(cache, "work"))
     cells = {}
     workers = os.cpu_count() or 2
     with concurrent.futures.ProcessPoolExecutor(workers) as pool:
-        jobs = [pool.submit(build_cell, cid, parts, out, date)
+        jobs = [pool.submit(build_cell, cid, parts, out, date, extra.get(cid))
                 for cid, parts in sorted(pieces.items())]
         for job in concurrent.futures.as_completed(jobs):
             cid, entry = job.result()

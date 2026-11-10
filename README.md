@@ -24,3 +24,8 @@ Routing graphs and house numbers for the whole world, in 1° cells, built from
 `https://maps.roadtrace.app/cells/index.json`. A phone downloads the cells under the
 area it keeps offline and joins them for turn-by-turn directions with no network.
 See the docstrings in `tools/routing/build_graph.py` for the file format.
+
+House numbers come from OpenStreetMap and from the
+[Overture Maps](https://overturemaps.org) addresses theme (governments' open
+address registers), read anonymously for each block's box. Their data keeps
+its sources' licences and credits.
