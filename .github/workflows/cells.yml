@@ -1,0 +1,107 @@
+# Routing graphs and house numbers for the whole world, in 1-degree cells
+# (tools/maps/build_cells.py), to maps.roadtrace.app/cells on Cloudflare R2.
+# The app (cirro-admin/roadtrace, lib/map/area_downloads.dart) downloads the
+# cells under the area or country chosen. Each run
+# builds some 10-degree blocks; the index keeps the others as they were, so
+# the world can be refreshed a part at a time.
+name: Routing cells
+
+# In this public repository Actions minutes are free, so a third of the
+# world is rebuilt each month: every block is at most three months old.
+# Never add a pull_request trigger: the job holds the R2 upload keys.
+on:
+  schedule:
+    - cron: "0 4 5 * *"
+  workflow_dispatch:
+    inputs:
+      blocks:
+        description: 'Blocks such as "n00e010 n40w010", "third" (this month''s third of the world), or "third:0", "third:1", "third:2"'
+        required: true
+        default: third
+
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.R2_MAPS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_MAPS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: auto
+  R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      blocks: ${{ steps.plan.outputs.blocks }}
+      date: ${{ steps.plan.outputs.date }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: |
+          want="${{ inputs.blocks || 'third' }}"
+          all=$(python3 tools/maps/build_cells.py plan all)
+          # A run takes at most 256 blocks (GitHub's matrix limit); the
+          # world is about 570, so it goes in thirds.
+          case "$want" in
+            third) part=$(( 10#$(date -u +%m) % 3 )) ;;
+            third:[012]) part=${want#third:} ;;
+            *) part= ;;
+          esac
+          if [ -n "$part" ]; then
+            blocks=$(echo "$all" | python3 -c "import json,sys; b=json.load(sys.stdin); print(json.dumps(b[$part::3]))")
+          else
+            blocks=$(python3 tools/maps/build_cells.py plan $want)
+          fi
+          echo "blocks=$blocks" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "$blocks"
+
+  block:
+    needs: plan
+    if: needs.plan.outputs.blocks != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        block: ${{ fromJson(needs.plan.outputs.blocks) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+          pip install --quiet osmium
+      - name: Build
+        env:
+          CELLS_DATE: ${{ needs.plan.outputs.date }}
+          CELLS_CACHE: ${{ runner.temp }}/cells
+        run: python3 tools/maps/build_cells.py block ${{ matrix.block }} out
+      - name: Upload
+        run: |
+          d=${{ needs.plan.outputs.date }}
+          # Cell files never change once written: cache them for good. The
+          # block's listing goes last, so it never names a missing file.
+          aws s3 cp out s3://roadtrace-maps/cells/$d --recursive --exclude "*.json" \
+            --endpoint-url "$R2" --cache-control "public, max-age=31536000, immutable"
+          aws s3 cp out/${{ matrix.block }}.json s3://roadtrace-maps/cells/$d/${{ matrix.block }}.json \
+            --endpoint-url "$R2" --cache-control "public, max-age=31536000, immutable" \
+            --content-type application/json
+
+  index:
+    needs: [plan, block]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Index
+        run: |
+          d=${{ needs.plan.outputs.date }}
+          mkdir -p built
+          # Only blocks whose listing reached R2 (a failed block keeps its
+          # older cells).
+          aws s3 cp s3://roadtrace-maps/cells/$d/ built/ --recursive \
+            --exclude "*" --include "*.json" --endpoint-url "$R2" || true
+          aws s3 cp s3://roadtrace-maps/cells/index.json current.json --endpoint-url "$R2" || rm -f current.json
+          python3 tools/maps/build_cells.py index index.json built current.json
+          aws s3 cp index.json s3://roadtrace-maps/cells/index.json \
+            --endpoint-url "$R2" --cache-control "public, max-age=3600" \
+            --content-type application/json
+          curl -fsS https://maps.roadtrace.app/cells/index.json | head -c 400
