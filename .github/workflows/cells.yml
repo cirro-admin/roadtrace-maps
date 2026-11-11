@@ -87,8 +87,13 @@ jobs:
           d=${{ needs.plan.outputs.date }}
           # Cell files never change once written: cache them for good. The
           # block's listing goes last, so it never names a missing file.
-          aws s3 cp out s3://roadtrace-maps/cells/$d --recursive --exclude "*.json" \
-            --endpoint-url "$R2" --cache-control "public, max-age=31536000, immutable"
+          # R2 sometimes refuses a multipart upload's last step: try again.
+          for try in 1 2 3 4; do
+            aws s3 cp out s3://roadtrace-maps/cells/$d --recursive --exclude "*.json" \
+              --endpoint-url "$R2" --cache-control "public, max-age=31536000, immutable" && break
+            [ $try = 4 ] && exit 1
+            sleep 30
+          done
           aws s3 cp out/${{ matrix.block }}.json s3://roadtrace-maps/cells/$d/${{ matrix.block }}.json \
             --endpoint-url "$R2" --cache-control "public, max-age=31536000, immutable" \
             --content-type application/json
