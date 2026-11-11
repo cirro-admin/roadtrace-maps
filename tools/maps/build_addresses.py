@@ -2,7 +2,7 @@
 """House numbers for a map region, for search ("Camí de la Galera 12").
 
     build_addresses.py EXTRACT.osm.pbf OUT.rtaddr --bbox W,S,E,N [--cell]
-                       [--extra ADDRESSES.tsv]
+                       [--extra ADDRESSES.tsv] [--overture]
 
 With --cell the box is a cell of the 1-degree grid (build_cells.py): its
 east and north edges belong to the next cells, and no file is written when
@@ -16,7 +16,9 @@ building at the middle of its outline. Read by lib/search/addresses.dart.
 --extra adds addresses from elsewhere (build_cells.py: Overture Maps,
 from governments' open address registers), one "street<TAB>number<TAB>
 lat<TAB>lng" line each. OpenStreetMap's come first: one with the same
-number within 50 m is the same house, and is left out.
+number within 50 m is the same house, and is left out. --overture fetches
+Overture's addresses in the box itself (needs duckdb; anonymous, and on
+failure the file is built with OpenStreetMap's alone).
 
 Format: gzip, UTF-8 lines. "RTADDR 1", then for each street (sorted)
 "=<street>" and one "<number>\\t<lat>\\t<lng>" line per house; the same
@@ -27,7 +29,10 @@ import argparse
 import gzip
 import math
 import os
+import re
 import sys
+import tempfile
+import urllib.request
 
 import osmium
 
@@ -133,6 +138,48 @@ def tidy_street(name):
                     for i, w in enumerate(words))
 
 
+OVERTURE = "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com"
+
+
+def overture_release():
+    """The newest Overture Maps release, such as "2026-10-21.0"."""
+    req = urllib.request.Request(
+        f"{OVERTURE}/?list-type=2&prefix=release/&delimiter=/",
+        headers={"User-Agent": "roadtrace-maps/1 (+https://roadtrace.app)"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        listing = r.read().decode()
+    return sorted(re.findall(r"<Prefix>release/([0-9][^<]*)/</Prefix>", listing))[-1]
+
+
+def fetch_overture(w, s, e, n, tsv):
+    """Overture's addresses with w <= lng < e and s <= lat < n, as a TSV of
+    street, number, lat, lng. Returns the release read."""
+    import duckdb
+    release = overture_release()
+    # Anonymous: no keys of ours ever go to that bucket.
+    keys = {k: v for k, v in os.environ.items() if k.startswith("AWS_")}
+    for k in keys:
+        del os.environ[k]
+    try:
+        db = duckdb.connect()
+        db.sql("INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2';")
+        db.sql(f"""
+            COPY (
+              SELECT replace(replace(street, chr(9), ' '), chr(10), ' '),
+                     replace(replace(number, chr(9), ' '), chr(10), ' '),
+                     round(bbox.ymin, 6), round(bbox.xmin, 6)
+              FROM read_parquet('s3://overturemaps-us-west-2/release/{release}/theme=addresses/type=address/*')
+              WHERE bbox.xmin >= {w} AND bbox.xmin < {e}
+                AND bbox.ymin >= {s} AND bbox.ymin < {n}
+                AND street IS NOT NULL AND number IS NOT NULL
+            ) TO '{tsv}' (FORMAT csv, DELIMITER '\t', HEADER false, QUOTE '')
+        """)
+        db.close()
+    finally:
+        os.environ.update(keys)
+    return release
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pbf")
@@ -140,12 +187,25 @@ def main():
     ap.add_argument("--bbox", required=True)
     ap.add_argument("--cell", action="store_true")
     ap.add_argument("--extra")
+    ap.add_argument("--overture", action="store_true")
     args = ap.parse_args()
     bbox = [float(v) for v in args.bbox.split(",")]
     h = Addresses(bbox, args.cell)
     h.apply_file(args.pbf, locations=True)
     if args.extra and os.path.exists(args.extra):
         h.add_extra(args.extra)
+    if args.overture:
+        tsv = tempfile.mktemp(suffix=".tsv")
+        try:
+            w, s_, e, n = bbox
+            release = fetch_overture(w, s_, e, n, tsv)
+            print(f"Overture {release}", file=sys.stderr)
+            h.add_extra(tsv)
+        except Exception as err:  # noqa: BLE001 - OpenStreetMap's numbers still go out
+            print(f"no Overture addresses ({err})", file=sys.stderr)
+        finally:
+            if os.path.exists(tsv):
+                os.remove(tsv)
     if args.cell and not h.streets:
         print("no addresses", file=sys.stderr)
         return

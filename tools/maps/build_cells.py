@@ -45,7 +45,6 @@ import hashlib
 import json
 import math
 import os
-import re
 import shutil
 import struct
 import subprocess
@@ -57,7 +56,6 @@ GRAPH = os.path.join(HERE, "..", "routing", "build_graph.py")
 ADDRESSES = os.path.join(HERE, "build_addresses.py")
 BASE_URL = "https://maps.roadtrace.app/cells"
 GEOFABRIK_INDEX = "https://download.geofabrik.de/index-v1.json"
-OVERTURE = "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com"
 UA = {"User-Agent": "roadtrace-maps/1 (+https://roadtrace.app)"}
 
 # Extracts that only repeat others (unions of countries or states).
@@ -147,44 +145,14 @@ def edge_count(rtgraph):
     return struct.unpack("<I", head[12:16])[0]
 
 
-def overture_release():
-    """The newest Overture Maps release, such as "2026-10-21.0"."""
-    req = urllib.request.Request(
-        f"{OVERTURE}/?list-type=2&prefix=release/&delimiter=/", headers=UA)
-    with urllib.request.urlopen(req, timeout=60) as r:
-        listing = r.read().decode()
-    releases = re.findall(r"<Prefix>release/([0-9][^<]*)/</Prefix>", listing)
-    return sorted(releases)[-1]
-
-
 def overture_addresses(block, work):
     """Overture's addresses in the block, a TSV per cell: {cell id: path}."""
     try:
-        import duckdb
-        release = overture_release()
+        sys.path.insert(0, HERE)
+        from build_addresses import fetch_overture
         blat, blng = parse_id(block)
         tsv = os.path.join(work, "overture.tsv")
-        # Anonymous: no keys of ours ever go to that bucket.
-        env = {k: v for k, v in os.environ.items() if k.startswith("AWS_")}
-        for k in env:
-            del os.environ[k]
-        try:
-            db = duckdb.connect()
-            db.sql("INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2';")
-            db.sql(f"""
-                COPY (
-                  SELECT replace(replace(street, chr(9), ' '), chr(10), ' '),
-                         replace(replace(number, chr(9), ' '), chr(10), ' '),
-                         round(bbox.ymin, 6), round(bbox.xmin, 6)
-                  FROM read_parquet('s3://overturemaps-us-west-2/release/{release}/theme=addresses/type=address/*')
-                  WHERE bbox.xmin >= {blng} AND bbox.xmin < {blng + 10}
-                    AND bbox.ymin >= {blat} AND bbox.ymin < {blat + 10}
-                    AND street IS NOT NULL AND number IS NOT NULL
-                ) TO '{tsv}' (FORMAT csv, DELIMITER '\t', HEADER false, QUOTE '')
-            """)
-            db.close()
-        finally:
-            os.environ.update(env)
+        release = fetch_overture(blng, blat, blng + 10, blat + 10, tsv)
         files, out = {}, {}
         rows = 0
         with open(tsv, encoding="utf-8") as f:
