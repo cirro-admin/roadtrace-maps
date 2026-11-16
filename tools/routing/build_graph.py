@@ -25,6 +25,7 @@ File format v4 (little-endian), read by lib/routing/route_graph.dart:
                                              run of points)
     i32 shapeLat[k], i32 shapeLng[k]
     u8  access[m]                           (bit0 car, bit1 motorcycle, bit2 foot,
+                                             bit3 = part of a roundabout,
                                              bit7 = walk the shape backwards)
     u8  roadClass[m]                        (see CLASSES)
     zero padding to a multiple of 4 bytes
@@ -61,6 +62,7 @@ HIGHWAY_CLASS = {
     "steps": 11, "pedestrian": 12,
 }
 CAR, MOTO, FOOT = 1, 2, 4
+ROUNDABOUT = 8  # access bit: the road is part of a roundabout
 NO = {"no", "private", "agricultural", "forestry", "delivery"}
 
 
@@ -174,6 +176,8 @@ class Collector(osmium.SimpleHandler):
         if acc == 0:
             return
         ow = oneway(w.tags, cls)
+        # For "take the 2nd exit": phones before 0.44 ignore the bit.
+        rb = ROUNDABOUT if w.tags.get("junction") in ("roundabout", "circular") else 0
         # Spoken in turn instructions: the street name, else its reference
         # ("N3"). Interned so a long road shares one string.
         name = sys.intern(w.tags.get("name") or w.tags.get("ref") or "")
@@ -206,6 +210,8 @@ class Collector(osmium.SimpleHandler):
                 stop |= self.barriers.get(b.ref, 0)
             fwd &= ~stop
             rev &= ~stop
+            fwd = fwd | rb if fwd else 0
+            rev = rev | rb if rev else 0
             if ia != ib and fwd | rev:
                 self.segs.append((ia, ib, dm, fwd, rev, cls, name))
 
