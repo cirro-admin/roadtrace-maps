@@ -55,10 +55,10 @@ GRAPH = os.path.join(HERE, "..", "routing", "build_graph.py")
 ADDRESSES = os.path.join(HERE, "build_addresses.py")
 BASE_URL = "https://maps.roadtrace.app/cells"
 GEOFABRIK_INDEX = "https://download.geofabrik.de/index-v1.json"
+INDEX_COPY = BASE_URL + "/geofabrik-index.json"
 UA = {"User-Agent": "roadtrace-maps/1 (+https://roadtrace.app)"}
-# Over IPv4, retrying anything: runners have no IPv6 route, and Geofabrik
-# publishes IPv6 addresses ("Network is unreachable" lost a block on
-# 2026-11-16).
+# Retrying anything: Geofabrik refuses some runners' connections for a
+# while (it lost blocks on 2026-11-16).
 CURL = ["-fsSL", "-4", "--retry", "5", "--retry-all-errors", "--retry-delay", "20",
         "-A", UA["User-Agent"]]
 
@@ -88,7 +88,12 @@ def geofabrik_leaves(cache):
     """Every smallest extract: (id, pbf url, cells it reaches)."""
     path = os.path.join(cache, "geofabrik-index.json")
     if not os.path.exists(path):
-        subprocess.run(["curl", *CURL, "-o", path, GEOFABRIK_INDEX], check=True)
+        try:
+            subprocess.run(["curl", *CURL, "-o", path, GEOFABRIK_INDEX], check=True)
+        except subprocess.CalledProcessError:
+            # Geofabrik turns some runners away: our copy, saved by the
+            # plan job of an earlier run.
+            subprocess.run(["curl", *CURL, "-o", path, INDEX_COPY], check=True)
     features = json.load(open(path))["features"]
     parents = {f["properties"].get("parent") for f in features}
     out = []

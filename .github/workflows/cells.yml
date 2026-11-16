@@ -53,6 +53,9 @@ jobs:
           else
             blocks=$(python3 tools/maps/build_cells.py plan $want)
           fi
+          # A copy of Geofabrik's index for runners it turns away.
+          aws s3 cp cache/geofabrik-index.json s3://roadtrace-maps/cells/geofabrik-index.json \
+            --endpoint-url "$R2" --content-type application/json || true
           echo "blocks=$blocks" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
           echo "$blocks"
