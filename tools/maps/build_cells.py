@@ -49,7 +49,6 @@ import shutil
 import struct
 import subprocess
 import sys
-import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GRAPH = os.path.join(HERE, "..", "routing", "build_graph.py")
@@ -57,6 +56,11 @@ ADDRESSES = os.path.join(HERE, "build_addresses.py")
 BASE_URL = "https://maps.roadtrace.app/cells"
 GEOFABRIK_INDEX = "https://download.geofabrik.de/index-v1.json"
 UA = {"User-Agent": "roadtrace-maps/1 (+https://roadtrace.app)"}
+# Over IPv4, retrying anything: runners have no IPv6 route, and Geofabrik
+# publishes IPv6 addresses ("Network is unreachable" lost a block on
+# 2026-11-16).
+CURL = ["-fsSL", "-4", "--retry", "5", "--retry-all-errors", "--retry-delay", "20",
+        "-A", UA["User-Agent"]]
 
 # Extracts that only repeat others (unions of countries or states).
 OVERLAPPING = {
@@ -84,9 +88,7 @@ def geofabrik_leaves(cache):
     """Every smallest extract: (id, pbf url, cells it reaches)."""
     path = os.path.join(cache, "geofabrik-index.json")
     if not os.path.exists(path):
-        req = urllib.request.Request(GEOFABRIK_INDEX, headers=UA)
-        with urllib.request.urlopen(req, timeout=120) as r, open(path, "wb") as f:
-            shutil.copyfileobj(r, f)
+        subprocess.run(["curl", *CURL, "-o", path, GEOFABRIK_INDEX], check=True)
     features = json.load(open(path))["features"]
     parents = {f["properties"].get("parent") for f in features}
     out = []
@@ -222,8 +224,7 @@ def build_block(block, out, date, cache):
             continue
         pbf = os.path.join(cache, "extract.osm.pbf")
         print(f"== {block}: {leaf} ({len(cells)} cells)", flush=True)
-        subprocess.run(["curl", "-fsSL", "--retry", "3", "-A", UA["User-Agent"],
-                        "-o", pbf, url], check=True)
+        subprocess.run(["curl", *CURL, "-o", pbf, url], check=True)
         # One cell per pass of the extract: osmium keeps id tables of 2 GB
         # or more per output, and a runner has little more. "simple" (the
         # parts of roads inside the box) needs the least; the box is the
