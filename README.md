@@ -29,3 +29,12 @@ House numbers come from OpenStreetMap and from the
 [Overture Maps](https://overturemaps.org) addresses theme (governments' open
 address registers), read anonymously for each block's box. Their data keeps
 its sources' licences and credits.
+
+## Regions and the world map
+
+`.github/workflows/maps.yml` (monthly) cuts the ready-made regions in
+`tools/maps/regions.json` from the newest Protomaps build with
+`tools/maps/build_maps.py`, with their routing graphs and house numbers, and
+publishes `https://maps.roadtrace.app/catalog.json`. `.github/workflows/world-map.yml`
+(monthly) copies the whole Protomaps planet build to
+`https://maps.roadtrace.app/world/` with `tools/maps/world_map.py`.

@@ -1,0 +1,73 @@
+# The world map for the alert page (roadtrace.app/t/...): the newest
+# Protomaps planet build (OpenStreetMap data, ~140 GB) copied whole to R2
+# as maps.roadtrace.app/world/<date>.pmtiles, with the fonts and sprites
+# its style needs, then world/world.json pointing at it. Copied in 1 GB
+# parts: the runner's disk is far too small to hold it, and one long
+# stream breaks (it did, after 11 minutes).
+# The page reads it with HTTP range requests; nothing is downloaded whole.
+name: World map
+
+on:
+  schedule:
+    - cron: "0 4 3 * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Protomaps build YYYYMMDD (empty: newest)"
+        required: false
+
+jobs:
+  world:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_MAPS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_MAPS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      BUCKET: roadtrace-maps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the build
+        id: pick
+        run: python3 tools/maps/world_map.py pick "${{ inputs.date }}" >> "$GITHUB_OUTPUT"
+
+      - name: Copy the planet to R2
+        if: steps.pick.outputs.present != 'yes'
+        run: python3 tools/maps/world_map.py copy "${{ steps.pick.outputs.key }}" "${{ steps.pick.outputs.size }}"
+
+      - name: Check the copy
+        run: |
+          got=$(aws s3api head-object --bucket "$BUCKET" --key "world/${{ steps.pick.outputs.key }}" --endpoint-url "$R2" --query ContentLength --output text)
+          [ "$got" = "${{ steps.pick.outputs.size }}" ] || { echo "copied $got bytes, expected ${{ steps.pick.outputs.size }}"; exit 1; }
+
+      - name: Fonts and sprites
+        run: |
+          # The style's labels (Noto Sans) and icons, from Protomaps' assets.
+          # Unchanged between builds: only the first run copies them.
+          if aws s3api head-object --bucket "$BUCKET" --key "world/sprites/v4/dark.json" --endpoint-url "$R2" > /dev/null 2>&1; then
+            echo "already there"; exit 0
+          fi
+          dir=$(mktemp -d)
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/protomaps/basemaps-assets "$dir"
+          cd "$dir"
+          git sparse-checkout set "fonts/Noto Sans Regular" "fonts/Noto Sans Medium" "fonts/Noto Sans Italic" sprites/v4
+          aws s3 cp fonts "s3://$BUCKET/world/fonts" --recursive --endpoint-url "$R2" \
+            --content-type application/x-protobuf --cache-control "public, max-age=2592000"
+          aws s3 cp sprites "s3://$BUCKET/world/sprites" --recursive --endpoint-url "$R2" \
+            --cache-control "public, max-age=2592000"
+
+      - name: Let roadtrace.app read it
+        # Needs a key allowed to change bucket settings; otherwise set the
+        # same rule by hand (R2 > roadtrace-maps > Settings > CORS policy).
+        continue-on-error: true
+        run: python3 tools/maps/world_map.py cors
+
+      - name: Point world.json at it, and drop all but the last two
+        run: python3 tools/maps/world_map.py publish "${{ steps.pick.outputs.key }}" "${{ steps.pick.outputs.size }}"
+
+      - name: Check
+        run: |
+          curl -fsS https://maps.roadtrace.app/world/world.json
+          curl -fsS -o /dev/null -r 0-16383 -w "first 16 KB: %{http_code}\n" "$(curl -fsS https://maps.roadtrace.app/world/world.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"

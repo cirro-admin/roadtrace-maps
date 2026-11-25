@@ -1,0 +1,53 @@
+# Monthly offline maps for maps.roadtrace.app (Cloudflare R2, bucket
+# roadtrace-maps): regions cut from the newest Protomaps planet build,
+# routing graphs from Geofabrik, then the catalogue the app reads.
+# Moved here from the private app repo 2026-11-25: public repos' Actions
+# minutes are free.
+name: Offline maps
+
+on:
+  schedule:
+    - cron: "0 3 2 * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Protomaps build YYYYMMDD (empty: newest)"
+        required: false
+
+jobs:
+  maps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_MAPS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_MAPS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          curl -fsSL https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz | tar -xz -C /usr/local/bin pmtiles
+          pip install --quiet osmium duckdb
+
+      - name: Build regions and catalogue
+        id: build
+        env:
+          # No keys needed to build: Overture is read anonymously.
+          AWS_ACCESS_KEY_ID: ""
+          AWS_SECRET_ACCESS_KEY: ""
+        run: python3 tools/maps/build_maps.py out ${{ inputs.date && format('--date {0}', inputs.date) || '' }}
+
+      - name: Upload to R2
+        run: |
+          # Region files never change once written: cache them for good.
+          aws s3 cp out/${{ steps.build.outputs.folder }} s3://roadtrace-maps/${{ steps.build.outputs.folder }} \
+            --recursive --endpoint-url "$R2" --cache-control "public, max-age=31536000, immutable"
+          # The catalogue last, so the app never sees files that are not there yet.
+          aws s3 cp out/catalog.json s3://roadtrace-maps/catalog.json \
+            --endpoint-url "$R2" --cache-control "public, max-age=3600" --content-type application/json
+
+      - name: Check
+        run: |
+          curl -fsS https://maps.roadtrace.app/catalog.json | python3 -c "import json,sys; c=json.load(sys.stdin); print(c['source'], len(c['regions']), 'regions')"

@@ -1,0 +1,41 @@
+{
+  "regions": [
+    {
+      "id": "es-alicante",
+      "name": { "en": "Alicante", "fr": "Alicante" },
+      "country": "ES",
+      "file": "alicante",
+      "bbox": [-0.85, 38.15, -0.05, 38.65],
+      "maxzoom": 15,
+      "osm": "https://download.geofabrik.de/europe/spain/valencia-latest.osm.pbf"
+    },
+    {
+      "id": "cm-yaounde",
+      "name": { "en": "Yaoundé", "fr": "Yaoundé" },
+      "country": "CM",
+      "file": "yaounde",
+      "bbox": [11.35, 3.72, 11.65, 4.0],
+      "maxzoom": 15,
+      "osm": "https://download.geofabrik.de/africa/cameroon-latest.osm.pbf"
+    },
+    {
+      "id": "cm-douala",
+      "name": { "en": "Douala", "fr": "Douala" },
+      "country": "CM",
+      "file": "douala",
+      "bbox": [9.6, 3.95, 9.85, 4.15],
+      "maxzoom": 15,
+      "osm": "https://download.geofabrik.de/africa/cameroon-latest.osm.pbf"
+    },
+    {
+      "id": "cm-overview",
+      "name": { "en": "Cameroon (main roads)", "fr": "Cameroun (routes principales)" },
+      "country": "CM",
+      "file": "cameroon",
+      "bbox": [8.4, 1.6, 16.2, 13.1],
+      "maxzoom": 11,
+      "osm": "https://download.geofabrik.de/africa/cameroon-latest.osm.pbf",
+      "majorOnly": true
+    }
+  ]
+}
